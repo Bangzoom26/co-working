@@ -444,40 +444,58 @@
         this.timeLeft = null;
         this.timerActive = false;
         this.timerInterval = null;
+        this.googleScriptUrl = 'https://script.google.com/macros/s/AKfycbzYDD7G6QinQQfb7nFy94E2ozz98PmunEWmKS8gr5vY_Xlsg8fqMKGw0vKmBGvqRldgGQ/exec';
+        this.syncInProgress = false;
 
-        this.loadFromStorage();
+        this.loadFromGoogle();
         this.setupEventListeners();
-        this.render();
       }
 
-      loadFromStorage() {
-        const saved = localStorage.getItem('coworkingSession');
-        if (saved) {
-          try {
-            const data = JSON.parse(saved);
-            this.hostName = data.hostName || '';
-            this.sessionMinutes = data.sessionMinutes || '60';
-            this.participants = data.participants || Array(10).fill(null).map(() => ({ name: '', tasks: [] }));
-          } catch (e) {
-            console.error('Failed to load saved session', e);
-          }
+      async loadFromGoogle() {
+        try {
+          const response = await fetch(this.googleScriptUrl);
+          const data = await response.json();
+          this.hostName = data.hostName || '';
+          this.sessionMinutes = data.sessionMinutes || '60';
+          this.participants = data.participants && data.participants.length > 0 ? data.participants : Array(10).fill(null).map(() => ({ name: '', tasks: [] }));
+          this.render();
+        } catch (e) {
+          console.error('Failed to load from Google Sheet', e);
+          this.render();
         }
       }
 
-      saveToStorage() {
-        const data = { hostName: this.hostName, sessionMinutes: this.sessionMinutes, participants: this.participants };
-        localStorage.setItem('coworkingSession', JSON.stringify(data));
+      async saveToGoogle() {
+        if (this.syncInProgress) return;
+        this.syncInProgress = true;
+        
+        try {
+          const payload = {
+            hostName: this.hostName,
+            sessionMinutes: this.sessionMinutes,
+            participants: this.participants
+          };
+          
+          await fetch(this.googleScriptUrl, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+          });
+        } catch (e) {
+          console.error('Failed to save to Google Sheet', e);
+        }
+        
+        this.syncInProgress = false;
       }
 
       setupEventListeners() {
         document.getElementById('hostName').addEventListener('change', (e) => {
           this.hostName = e.target.value;
-          this.saveToStorage();
+          this.saveToGoogle();
         });
 
         document.getElementById('sessionMinutes').addEventListener('change', (e) => {
           this.sessionMinutes = e.target.value;
-          this.saveToStorage();
+          this.saveToGoogle();
         });
 
         document.getElementById('startBtn').addEventListener('click', () => this.startSession());
@@ -525,32 +543,32 @@
 
       addTask(participantIndex) {
         this.participants[participantIndex].tasks.push({ id: Date.now(), text: '', done: false });
-        this.saveToStorage();
+        this.saveToGoogle();
         this.renderParticipant(participantIndex);
       }
 
       updateTask(pIndex, tIndex, text) {
         this.participants[pIndex].tasks[tIndex].text = text;
-        this.saveToStorage();
+        this.saveToGoogle();
         this.updateProgress();
       }
 
       toggleTask(pIndex, tIndex) {
         this.participants[pIndex].tasks[tIndex].done = !this.participants[pIndex].tasks[tIndex].done;
-        this.saveToStorage();
+        this.saveToGoogle();
         this.updateProgress();
       }
 
       deleteTask(pIndex, tIndex) {
         this.participants[pIndex].tasks.splice(tIndex, 1);
-        this.saveToStorage();
+        this.saveToGoogle();
         this.renderParticipant(pIndex);
         this.updateProgress();
       }
 
       updateParticipantName(index, name) {
         this.participants[index].name = name;
-        this.saveToStorage();
+        this.saveToGoogle();
       }
 
       resetSession() {
@@ -560,7 +578,7 @@
           this.participants = Array(10).fill(null).map(() => ({ name: '', tasks: [] }));
           this.timeLeft = null;
           this.timerActive = false;
-          localStorage.removeItem('coworkingSession');
+          this.saveToGoogle();
           this.render();
         }
       }
